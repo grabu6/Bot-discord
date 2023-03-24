@@ -2,6 +2,10 @@ const {google}=require('googleapis');
 const moment=require('moment');
 const credentials= require('../credentials.json');
 const token=require('../token.json');
+const {config}=require('dotenv');
+config();
+const debug = require('debug')('bot-discord');
+
 
 const auth= new google.auth.OAuth2({
     clientId: credentials.installed.client_id,
@@ -23,46 +27,80 @@ const docs=google.docs({
     auth:auth
 });
 
-let carpeta;
-
-async function crearCarpeta(){
-
-    if(!carpeta){
-        const dadesCarpeta={
-            name:`${moment().format('YYYY-MM-DD')}`,
-            mimeType: 'application/vnd.google-apps.folder'
-        };
-
-        const carpetaResposta= await drive.files.create({
-            resource: dadesCarpeta,
-            fields: 'id'
-        });
-
-        carpeta=carpetaResposta.data;
-    }
-        return carpeta;
-}
-
-async function crearDoc(title){
-    try{
-        const carpeta=await crearCarpeta();
-        const dades={
-            name: title,
-            parents:[carpeta.id],
-            mimeType: 'application/vnd.google-apps.document'
-        };
-    
-        const resposta= await drive.files.create({
-        resource: dades,
-        fields: 'id',
+async function crearCarpeta(msg, client) {
+    try {
+      const server = await client.guilds.fetch(msg.guild.id);
+      const serverName = server.name;
+  
+       const query = `name='${serverName}' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
+       const carpetaExisteix = await drive.files.list({
+      q: query,
+      fields: "files(id)",
+      spaces: "drive",
     });
-    const documentId=resposta.data.id;
 
-    return documentId;
+    let carpeta;
+    if (carpetaExisteix.data.files.length > 0) {
+      carpeta = carpetaExisteix.data.files[0];
+    } else {
+      const dadesCarpeta = {
+        name: serverName,
+        mimeType: "application/vnd.google-apps.folder",
+      };
+      const carpeta = await drive.files.create({
+        resource: dadesCarpeta,
+        fields: "id",
+      });
+  
+      const canals = await server.channels.cache.filter(
+        (canal) => canal.type === "text"
+      );
 
-} catch (error){
-    console.log(error);
-}
+      const canalIds = [];
+
+      for (const [_, canal] of canals) {
+        const nomCanal = canal.name;
+        const dadesCanal = {
+          name: nomCanal,
+          parents: [carpeta.data.id],
+          mimeType: "application/vnd.google-apps.folder",
+        };
+        const canalCarpeta = await drive.files.create({
+          resource: dadesCanal,
+          fields: "id",
+        });
+        const { documentId, parentId } = await crearDoc(moment().format('YYYY-MM-DD'), canalCarpeta.data.id); 
+        msg.reply(`Carpeta creada amb el nom: ${serverName}`);
+        return documentId;
+      }
+
+      return carpeta.data;
+    }} catch (error) {
+      debug(error);
+      throw new Error("Error al crear la carpeta");
+    }
+  }
+
+async function crearDoc(documentName, parentId){
+
+        try {
+            const dades = {
+              name: documentName,
+              parents: [parentId],
+              mimeType: "application/vnd.google-apps.document",
+            };
+        
+            const resposta = await drive.files.create({
+              resource: dades,
+              fields: "id",
+            });
+            const documentId = resposta.data.id;
+        
+            return {documentId,parentId};
+
+          } catch (error) {
+            debug(error);
+          }
 }
 
 async function insertarText(documentId, text){
@@ -81,7 +119,7 @@ async function insertarText(documentId, text){
             }
         });
     } catch (error){
-        console.log(error);
+        debug(error);
     }
 }
 

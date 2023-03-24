@@ -1,12 +1,13 @@
 const Discord= require ('discord.js');
 const client= new Discord.Client();
 const prefix= '/';
-const {crearCarpeta,crearDoc,insertarText}= require('./model/documents');
+const {crearCarpeta,insertarText}= require('./model/documents');
 const fs = require('fs').promises;
 const path = require('path');
 const process = require('process');
 const {authenticate} = require('@google-cloud/local-auth');
 const {google} = require('googleapis');
+const debug = require('debug')('bot-discord');
 const {config}=require('dotenv');
 config();
 const token_discord= process.env.TOKEN_DISCORD;
@@ -65,56 +66,46 @@ async function listFiles(authClient) {
   });
   const files = res.data.files;
   if (files.length === 0) {
-    console.log('No files found.');
+    debug('No files found.');
     return;
   }
 
-  console.log('Files:');
+  debug('Files:');
   files.map((file) => {
-    console.log(`${file.name} (${file.id})`);
+    debug(`${file.name} (${file.id})`);
   });
 }
 
-authorize().then(listFiles).catch(console.error);
+authorize().then(listFiles).catch(debug);
 
 
 client.on('ready', () => {
-    console.log(`Logged in as ${client.user.tag}!`);
+    debug(`Logged in as ${client.user.tag}!`);
 });
 
 client.on('message', async msg => {
     if(msg.content.startsWith(prefix)) {
-        const [command, ...args] = msg.content.slice(prefix.length).split(' ');
+        const [command] = msg.content.slice(prefix.length).split(' ');
         
         if (command === 'crear') {
-            const title = args.join(' ');
-            try {
-              const carpeta = await crearCarpeta();
-              const documentId = await crearDoc(title, carpeta.id);
-              msg.reply(`Document creat amb el nom: ${title}`);
-      
-              let capturant = true;
-              client.on('message', async msg2 => {
-                if (capturant && msg2.content !== '' && !msg2.author.bot && !msg2.content.startsWith(prefix)) {
-                    const text = msg2.content;
-                    await insertarText(documentId, text);
-                }
-                if (msg2.content.startsWith(prefix)) {
-                  const [command] = msg2.content.slice(prefix.length).split(' ');
-                  if (command === 'stop') {
-                    capturant = false;
-                    msg2.reply('Captura de missatges desactivat');
-                  }
-                }
-              });
+          try {
+            const documentId = await crearCarpeta(msg,client);
+
+            let capturant = true;
+            client.on('message', async msg2 => {
+              if (capturant && msg2.content !== '' && !msg2.author.bot && !msg2.content.startsWith(prefix)) {
+                  const text = msg2.content;
+                  await insertarText(documentId, text);
+              }
+            });    
             } catch (error) {
-              console.log(error);
+              debug(error);
               msg.reply('Error al crear el document');
             }
           }
-            }
-        }
-);
+       }
+    }
+  );
 
 client.login(token_discord);
 

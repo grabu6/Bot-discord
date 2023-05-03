@@ -27,19 +27,20 @@ const docs=google.docs({
     auth:auth
 });
 
-async function crearCarpeta(msg, client) {
+async function crearCarpeta(interaction, client) {
     try {
-      const server = await client.guilds.fetch(msg.guild.id);
+      const server = await client.guilds.fetch(interaction.guildId);
       const serverName = server.name;
   
-       const query = `name='${serverName}' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
-       const carpetaExisteix = await drive.files.list({
+      const query = `name='${serverName}' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
+      const carpetaExisteix = await drive.files.list({
       q: query,
       fields: "files(id)",
       spaces: "drive",
     });
 
     let carpeta;
+
     if (carpetaExisteix.data.files.length > 0) {
       carpeta = carpetaExisteix.data.files[0];
     } else {
@@ -47,11 +48,13 @@ async function crearCarpeta(msg, client) {
         name: serverName,
         mimeType: "application/vnd.google-apps.folder",
       };
-      const carpeta = await drive.files.create({
+      const novaCarpeta = await drive.files.create({
         resource: dadesCarpeta,
         fields: "id",
       });
   
+      carpeta = novaCarpeta.data;
+      
       const canals = await server.channels.cache.filter(
         (canal) => canal.type === "text"
       );
@@ -62,25 +65,30 @@ async function crearCarpeta(msg, client) {
         const nomCanal = canal.name;
         const dadesCanal = {
           name: nomCanal,
-          parents: [carpeta.data.id],
+          parents: [carpeta.id],
           mimeType: "application/vnd.google-apps.folder",
         };
+
+        try{
+
         const canalCarpeta = await drive.files.create({
           resource: dadesCanal,
           fields: "id",
         });
-        const { documentId, parentId } = await crearDoc(moment().format('YYYY-MM-DD'), canalCarpeta.data.id); 
-        msg.reply(`Carpeta creada amb el nom: ${serverName}`);
-        return documentId;
-      }
 
-      return carpeta.data;
-    }} catch (error) {
+        const { documentId, parentId } = await crearDoc(moment().format('YYYY-MM-DD'), canalCarpeta.data.id); 
+        canalIds.push(documentId);
+      }catch (error) {
+        debug(`Error al crear la subcarpeta per ${nomCanal}: ${error}`);
+      }
+    }
+      return { carpetaId: novaCarpeta.data.id, canalIds};    
+    
+    }}catch (error) {
       debug(error);
       throw new Error("Error al crear la carpeta");
-    }
   }
-
+}
 async function crearDoc(documentName, parentId){
 
         try {
@@ -111,7 +119,7 @@ async function insertarText(documentId, text){
                 requests: [
                     {
                         insertText: {
-                            text:text,
+                            text:text  + '\n',
                             endOfSegmentLocation: {}
                         }
                     }

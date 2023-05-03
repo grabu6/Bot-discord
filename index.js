@@ -1,25 +1,80 @@
-const Discord= require ('discord.js');
-const client= new Discord.Client();
-const prefix= '/';
+const {Client, GatewayIntentBits, Collection}= require ('discord.js');
+const client = new Client({ intents: [ 
+  GatewayIntentBits.DirectMessages,
+  GatewayIntentBits.Guilds,
+  GatewayIntentBits.GuildMessages,
+  GatewayIntentBits.MessageContent] });
+const { SlashCommandBuilder } = require('discord.js');
 const {crearCarpeta,insertarText}= require('./model/documents');
-const fs = require('fs').promises;
-const path = require('path');
 const process = require('process');
-const {authenticate} = require('@google-cloud/local-auth');
-const {google} = require('googleapis');
 const debug = require('debug')('bot-discord');
 const {config}=require('dotenv');
 config();
 const token_discord= process.env.TOKEN_DISCORD;
 
+const crear = new SlashCommandBuilder()
+    .setName('crear')
+    .setDescription('Crea una carpeta i un document a Google Drive que captura tot el text que s\'escriu al xat')
 
+client.commands=new Collection();
+
+client.on('ready', async() => {
+  debug(`Logged in as ${client.user.tag}!`);
+  const command = await client.application.commands.create(crear);
+  client.commands.set(command.name, command);
+});
+
+client.on('interactionCreate', async interaction => {
+  try {  
+  if (!interaction.isCommand()) return;
+  if (interaction.deferred || interaction.replied) return;
+  
+    const { commandName } = interaction;
+
+    if (commandName === 'crear') {
+
+      await interaction.deferReply();
+      
+      const {carpetaId, canalIds} = await crearCarpeta(interaction,client);
+             
+      let capturant = true;
+
+      client.on('messageCreate', async msg2 => {
+        if (capturant && msg2.content !== '' && !msg2.author.bot) {
+          for (const [, msg] of messages) {
+            if (msg.content !== '' && !msg.author.bot) {
+              const text = msg.content;
+              for (const docId of canalIds) {
+                await insertarText(docId, text);
+              }
+            }
+          }
+        }
+      });
+
+      await interaction.followUp("Carpeta creada correctament.")
+
+      }} catch (error) {
+          debug(error);
+          interaction.reply('Error al crear la carpeta i/o el document.');
+      }
+      }
+  );
+
+client.login(token_discord);
+
+/*
+
+const {authenticate} = require('@google-cloud/local-auth');
+const {google} = require('googleapis');
+const fs = require('fs').promises;
+const path = require('path');
 
 const SCOPES = ['https://www.googleapis.com/auth/drive.file',
 'https://www.googleapis.com/auth/documents'];
 const TOKEN_PATH = path.join(process.cwd(), 'token.json');
 const CREDENTIALS_PATH = path.join(process.cwd(), 'credentials.json');
 
- 
 async function loadSavedCredentialsIfExist() {
   try {
     const content = await fs.readFile(TOKEN_PATH);
@@ -76,36 +131,4 @@ async function listFiles(authClient) {
   });
 }
 
-authorize().then(listFiles).catch(debug);
-
-
-client.on('ready', () => {
-    debug(`Logged in as ${client.user.tag}!`);
-});
-
-client.on('message', async msg => {
-    if(msg.content.startsWith(prefix)) {
-        const [command] = msg.content.slice(prefix.length).split(' ');
-        
-        if (command === 'crear') {
-          try {
-            const documentId = await crearCarpeta(msg,client);
-
-            let capturant = true;
-            client.on('message', async msg2 => {
-              if (capturant && msg2.content !== '' && !msg2.author.bot && !msg2.content.startsWith(prefix)) {
-                  const text = msg2.content;
-                  await insertarText(documentId, text);
-              }
-            });    
-            } catch (error) {
-              debug(error);
-              msg.reply('Error al crear el document');
-            }
-          }
-       }
-    }
-  );
-
-client.login(token_discord);
-
+authorize().then(listFiles).catch(debug);*/

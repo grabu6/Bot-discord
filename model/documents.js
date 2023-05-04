@@ -4,6 +4,7 @@ const credentials= require('../credentials.json');
 const token=require('../token.json');
 const {config}=require('dotenv');
 config();
+const axios = require('axios');
 const debug = require('debug')('bot-discord');
 
 
@@ -28,67 +29,57 @@ const docs=google.docs({
 });
 
 async function crearCarpeta(interaction, client) {
-    try {
-      const server = await client.guilds.fetch(interaction.guildId);
-      const serverName = server.name;
-  
-      const query = `name='${serverName}' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
-      const carpetaExisteix = await drive.files.list({
-      q: query,
-      fields: "files(id)",
-      spaces: "drive",
-    });
+  try {
+    const server = await client.guilds.fetch(interaction.guildId);
+    const serverName = server.name;
+    await server.channels.fetch();
+    const canals = server.channels.cache.filter((canal) => canal.type === 0);
 
     let carpeta;
-
-    if (carpetaExisteix.data.files.length > 0) {
-      carpeta = carpetaExisteix.data.files[0];
-    } else {
-      const dadesCarpeta = {
-        name: serverName,
-        mimeType: "application/vnd.google-apps.folder",
-      };
-      const novaCarpeta = await drive.files.create({
-        resource: dadesCarpeta,
-        fields: "id",
-      });
-  
-      carpeta = novaCarpeta.data;
-      
-      const canals = await server.channels.cache.filter(
-        (canal) => canal.type === "text"
-      );
-
-      const canalIds = [];
-
-      for (const [_, canal] of canals) {
-        const nomCanal = canal.name;
-        const dadesCanal = {
-          name: nomCanal,
-          parents: [carpeta.id],
-          mimeType: "application/vnd.google-apps.folder",
-        };
-
-        try{
-
-        const canalCarpeta = await drive.files.create({
-          resource: dadesCanal,
-          fields: "id",
+    try {
+        carpeta = await drive.files.create({
+          resource: {
+            name: serverName,
+            mimeType: 'application/vnd.google-apps.folder',
+            fields: 'id'
+          },
         });
-
-        const { documentId, parentId } = await crearDoc(moment().format('YYYY-MM-DD'), canalCarpeta.data.id); 
-        canalIds.push(documentId);
-      }catch (error) {
-        debug(`Error al crear la subcarpeta per ${nomCanal}: ${error}`);
-      }
-    }
-      return { carpetaId: novaCarpeta.data.id, canalIds};    
-    
-    }}catch (error) {
+        debug("Carpeta creada correctament");
+    } catch (error) {
       debug(error);
       throw new Error("Error al crear la carpeta");
+    }
+    
+    const canalIds = [];
+    
+    for (const [_, canal] of canals) {
+      const nomCanal = canal.name;
+
+      let carpetaCanal;
+      try {
+          carpetaCanal = await drive.files.create({
+            resource: {
+              name: nomCanal,
+              parents: [carpeta.data.id],
+              mimeType: 'application/vnd.google-apps.folder',
+              fields: 'id'
+            },
+          })
+          debug("Subcarpeta creada correctament");
+      } catch (error) {
+        debug(error);
+        throw new Error("Error al crear les subcarpetes dels canals");
+      }
+      const { documentId, parentId } = await crearDoc(moment().format('YYYY-MM-DD'), carpetaCanal.data.id); 
+      canalIds.push(documentId);
+    }
+    return { carpetaId: carpeta.data.id, canalIds};
+  } catch (error) {
+    debug(error);
+    throw new Error("Error al crear la carpeta");
   }
 }
+
 async function crearDoc(documentName, parentId){
 
         try {
@@ -111,24 +102,76 @@ async function crearDoc(documentName, parentId){
           }
 }
 
-async function insertarText(documentId, text){
-    try{
-        await docs.documents.batchUpdate({
-            documentId,
-            requestBody: {
-                requests: [
-                    {
-                        insertText: {
-                            text:text  + '\n',
-                            endOfSegmentLocation: {}
-                        }
-                    }
-                ]
+async function insertarText(documentId, authorName, text, attachment) {
+  try {
+    const hora = new Date().toLocaleTimeString();
+    const informacio = `${authorName}:          ${text}           ${hora}\n\n`;
+
+    const requests = [
+      {
+        insertText: { 
+          text: informacio,
+          endOfSegmentLocation: {}
+        }
+      }
+    ];
+
+    if (attachment) {
+
+      const attachmentData = await axios.get(attachment.url, { responseType: 'stream' });
+      
+      const res = await drive.files.create({
+        requestBody: {
+          name: attachment.name,
+          mimeType: attachment.contentType,
+        },
+        media: {
+          mimeType: attachment.contentType,
+          body: attachmentData.data,
+        },
+        fields: 'id'
+      });
+      
+      const fileId = res.data.id;
+      
+      await drive.permissions.create({
+        fileId: fileId,
+        requestBody: {
+          role: 'reader',
+          type: 'anyone',
+        },
+        sendNotificationEmail: false,
+      });
+
+      const imageUri = `https://drive.google.com/uc?id=${fileId}`;
+
+      requests.unshift({
+        insertInlineImage: {
+          endOfSegmentLocation: {},
+          objectSize: {
+            height: {
+              magnitude: 200,
+              unit: "PT"
+            },
+            width: {
+              magnitude: 200,
+              unit: "PT"
             }
-        });
-    } catch (error){
-        debug(error);
+          },
+            uri: imageUri
+          }
+      });
     }
+    
+    await docs.documents.batchUpdate({
+      documentId,
+      requestBody: {
+        requests: requests
+      }
+    });
+  } catch (error) {
+    debug(error);
+  }
 }
 
 module.exports={

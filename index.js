@@ -1,9 +1,8 @@
-const {Client, GatewayIntentBits, Collection}= require ('discord.js');
-const client = new Client({ intents: [ 
-  GatewayIntentBits.DirectMessages,
-  GatewayIntentBits.Guilds,
-  GatewayIntentBits.GuildMessages,
-  GatewayIntentBits.MessageContent] });
+const  Discord = require('discord.js');
+const client = new Discord.Client({ intents: [Discord.GatewayIntentBits.DirectMessages,
+  Discord.GatewayIntentBits.Guilds,
+  Discord.GatewayIntentBits.GuildMessages,
+  Discord. GatewayIntentBits.MessageContent] });
 const { SlashCommandBuilder } = require('discord.js');
 const {crearCarpeta,insertarText}= require('./model/documents');
 const process = require('process');
@@ -12,69 +11,104 @@ const {config}=require('dotenv');
 config();
 const token_discord= process.env.TOKEN_DISCORD;
 
+client.commands=new Discord.Collection();
 const crear = new SlashCommandBuilder()
     .setName('crear')
     .setDescription('Crea una carpeta i un document a Google Drive que captura tot el text que s\'escriu al xat')
+;
 
-client.commands=new Collection();
-
-client.on('ready', async() => {
-  debug(`Logged in as ${client.user.tag}!`);
-  const command = await client.application.commands.create(crear);
-  client.commands.set(command.name, command);
+client.on('ready', () => {
+    debug(`Logged in as ${client.user.tag}!`);
 });
 
 client.on('interactionCreate', async interaction => {
-  try {  
   if (!interaction.isCommand()) return;
-  if (interaction.deferred || interaction.replied) return;
-  
-    const { commandName } = interaction;
+        if (interaction.commandName === 'crear') {
+          try {
+            await interaction.deferReply();
+            const {carpetaId, canalIds} = await crearCarpeta(interaction,client);
+            await interaction.editReply(`Carpeta creada correctament`);
 
-    if (commandName === 'crear') {
-
-      await interaction.deferReply();
-      
-      const {carpetaId, canalIds} = await crearCarpeta(interaction,client);
-             
-      let capturant = true;
-
-      client.on('messageCreate', async msg2 => {
-        if (capturant && msg2.content !== '' && !msg2.author.bot) {
-          for (const [, msg] of messages) {
-            if (msg.content !== '' && !msg.author.bot) {
-              const text = msg.content;
-              for (const docId of canalIds) {
-                await insertarText(docId, text);
+            client.on('messageCreate', async msg2 => {
+              if (msg2.attachments.size > 0) {
+                  const attachment = msg2.attachments.first();
+                  const authorName = msg2.author.username;
+                  debug(authorName);
+                  const text = msg2.content || attachment.name;
+                for (const docId of canalIds) {
+                  await insertarText(docId, authorName, text, attachment);
+                }
+              } else if (msg2.content !== '' && !msg2.author.bot) {               
+                  const authorName = msg2.author.username;  
+                  debug(authorName);
+                  const text = msg2.content;
+                  for (const docId of canalIds) {
+                    await insertarText(docId, authorName, text);
+                  }
               }
+            }             
+            );    
+            client.on('messageUpdate', async (oldMessage, newMessage) => {
+              try {
+                const authorName = newMessage.author.username;
+                const newText = newMessage.content;
+                const oldText = oldMessage.content;
+                const text=`El missatge "${oldText}" ha estat modificat per "${newText}"en el canal ${newMessage.channel.name}.`;
+
+                for (const docId of canalIds) {
+                  await insertarText(docId, authorName, text);
+                }
+              
+              } catch (error) {
+                debug(error);
+              }
+            }),
+
+            client.on('messageDelete', async msg => {
+              const authorName = msg.author.username;
+              let text;
+
+              if (msg.attachments.size > 0) {
+                const attachment = msg.attachments.first();
+                text= ` L'adjunt eliminat era: ${attachment.name}`;
+              }else{
+                text = `El missatge "${msg.content}" ha estat eliminat del canal ${msg.channel.name}.`;
+              }
+
+              for (const docId of canalIds) {
+                await insertarText(docId, authorName, text);
+              }
+            
+            });
+
+            } catch (error) {
+              debug(error);
+              interaction.reply('Error al crear el document');
             }
           }
-        }
-      });
-
-      await interaction.followUp("Carpeta creada correctament.")
-
-      }} catch (error) {
-          debug(error);
-          interaction.reply('Error al crear la carpeta i/o el document.');
-      }
-      }
+       }
   );
 
-client.login(token_discord);
+client.login(token_discord).then(() => {
+  client.application.commands
+    .create(crear.toJSON())
+    .then(console.log)
+    .catch(console.error);
+});
+
 
 /*
-
-const {authenticate} = require('@google-cloud/local-auth');
-const {google} = require('googleapis');
 const fs = require('fs').promises;
 const path = require('path');
+const {authenticate} = require('@google-cloud/local-auth');
+const {google} = require('googleapis')
 
 const SCOPES = ['https://www.googleapis.com/auth/drive.file',
 'https://www.googleapis.com/auth/documents'];
 const TOKEN_PATH = path.join(process.cwd(), 'token.json');
 const CREDENTIALS_PATH = path.join(process.cwd(), 'credentials.json');
 
+ 
 async function loadSavedCredentialsIfExist() {
   try {
     const content = await fs.readFile(TOKEN_PATH);
@@ -131,4 +165,5 @@ async function listFiles(authClient) {
   });
 }
 
-authorize().then(listFiles).catch(debug);*/
+authorize().then(listFiles).catch(debug);
+*/
